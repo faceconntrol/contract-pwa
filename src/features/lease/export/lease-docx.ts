@@ -13,6 +13,7 @@ import {
   TableRow,
   TextRun,
   TextWrappingType,
+  VerticalAlignTable,
   VerticalPositionAlign,
   VerticalPositionRelativeFrom,
   WidthType,
@@ -231,11 +232,31 @@ function partyCellParagraphs(lines: Array<{ text: string; bold?: boolean }>): Pa
   )
 }
 
+function signParagraph(signName: string): Paragraph {
+  return new Paragraph({
+    spacing: { before: 200, after: 60 },
+    keepLines: true,
+    children: [
+      new TextRun({
+        text: `Подпись ___________ (_${signName}_)`,
+        font: 'Times New Roman',
+        size: 24,
+      }),
+    ],
+  })
+}
+
 async function buildLandlordSignParagraph(
   signName: string,
   stampDataUrl: string,
 ): Promise<Paragraph> {
-  const children: Array<TextRun | ImageRun> = []
+  const children: Array<TextRun | ImageRun> = [
+    new TextRun({
+      text: `Подпись ___________ (_${signName}_)`,
+      font: 'Times New Roman',
+      size: 24,
+    }),
+  ]
 
   if (stampDataUrl) {
     const stamp = await dataUrlToStampBinary(stampDataUrl)
@@ -245,7 +266,7 @@ async function buildLandlordSignParagraph(
       const width = Math.max(1, Math.round(stamp.width * scale))
       const height = Math.max(1, Math.round(stamp.height * scale))
 
-      // Печать поверх строки подписи (floating, без обтекания)
+      // Печать поверх строки подписи — floating, текст остаётся на той же линии
       children.push(
         new ImageRun({
           data: stamp.bytes,
@@ -271,14 +292,6 @@ async function buildLandlordSignParagraph(
     }
   }
 
-  children.push(
-    new TextRun({
-      text: `Подпись ___________ (_${signName}_)`,
-      font: 'Times New Roman',
-      size: 24,
-    }),
-  )
-
   return new Paragraph({
     spacing: { before: 200, after: 60 },
     keepLines: true,
@@ -295,14 +308,17 @@ async function partiesTable(model: LeaseDocumentModel): Promise<Table> {
     model.landlordStampDataUrl,
   )
 
-  const cell = (width: number, paragraphs: Paragraph[]) =>
+  const cell = (
+    width: number,
+    paragraphs: Paragraph[],
+    verticalAlign: (typeof VerticalAlignTable)[keyof typeof VerticalAlignTable] = VerticalAlignTable.TOP,
+  ) =>
     new TableCell({
       borders: NO_BORDERS,
       width: { size: width, type: WidthType.DXA },
+      verticalAlign,
       children: paragraphs.length > 0 ? paragraphs : [new Paragraph({ children: [] })],
     })
-
-  const landlordSignChildren: Paragraph[] = [landlordSignParagraph]
 
   return new Table({
     width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
@@ -364,20 +380,8 @@ async function partiesTable(model: LeaseDocumentModel): Promise<Table> {
       new TableRow({
         cantSplit: true,
         children: [
-          cell(half, landlordSignChildren),
-          cell(right, [
-            new Paragraph({
-              spacing: { before: 200, after: 60 },
-              keepLines: true,
-              children: [
-                new TextRun({
-                  text: `Подпись ___________ (_${t.shortName}_)`,
-                  font: 'Times New Roman',
-                  size: 24,
-                }),
-              ],
-            }),
-          ]),
+          cell(half, [landlordSignParagraph], VerticalAlignTable.BOTTOM),
+          cell(right, [signParagraph(t.shortName)], VerticalAlignTable.BOTTOM),
         ],
       }),
     ],

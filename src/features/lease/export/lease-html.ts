@@ -60,11 +60,11 @@ export function buildLeaseHtml(model: LeaseDocumentModel): string {
   }
   table.parties td:last-child { padding: 0 0 0 12px; }
   table.parties tr.sign-row td {
-    padding-top: 48px;
+    padding-top: 36px;
     vertical-align: bottom;
   }
-  table.parties tr.sign-row + tr.sign-row td {
-    padding-top: 20px;
+  table.parties tr.sign-row.dates td {
+    padding-top: 48px;
   }
   table.parties p { margin: 0 0 6px; text-align: left; }
   .pdf-keep-together,
@@ -77,22 +77,25 @@ export function buildLeaseHtml(model: LeaseDocumentModel): string {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .sign-stamp {
+  /* Одинаковый бокс слева/справа — строки подписей на одной линии */
+  .sign-line {
     position: relative;
-    display: inline-block;
-    min-width: 220px;
-    min-height: 88px;
-    padding: 18px 8px 28px 0;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 112px;
+    display: flex;
+    align-items: flex-end;
   }
-  .sign-stamp .sign-text {
+  .sign-line .sign-text {
     position: relative;
     z-index: 1;
     margin: 0;
+    white-space: nowrap;
   }
-  .sign-stamp .stamp-over {
+  .sign-line .stamp-over {
     position: absolute;
-    left: 36px;
-    top: -8px;
+    left: 32px;
+    bottom: -20px;
     width: 108px;
     height: 108px;
     object-fit: contain;
@@ -199,13 +202,13 @@ export function buildLeaseHtml(model: LeaseDocumentModel): string {
         <p>БИК ${esc(t.bik)}</p>
       </td>
     </tr>
-    <tr class="sign-row">
+    <tr class="sign-row dates">
       <td><p>Дата: ${esc(model.contractDate)}</p></td>
       <td><p>Дата: ${esc(model.contractDate)}</p></td>
     </tr>
-    <tr class="sign-row">
+    <tr class="sign-row pdf-keep-together">
       <td>
-        <div class="pdf-keep-together sign-stamp">
+        <div class="sign-line">
           <p class="sign-text">Подпись ___________ (_${esc(model.landlordSignName)}_)</p>
           ${
             model.landlordStampDataUrl
@@ -214,7 +217,11 @@ export function buildLeaseHtml(model: LeaseDocumentModel): string {
           }
         </div>
       </td>
-      <td><p>Подпись ___________ (_${esc(t.shortName)}_)</p></td>
+      <td>
+        <div class="sign-line">
+          <p class="sign-text">Подпись ___________ (_${esc(t.shortName)}_)</p>
+        </div>
+      </td>
     </tr>
   </table>
 </body>
