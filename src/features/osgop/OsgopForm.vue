@@ -168,7 +168,7 @@ function clearForm(): void {
           <input v-model="form.osgopContractNumber" type="text" />
           <span v-if="errors.osgopContractNumber" class="err">{{ errors.osgopContractNumber }}</span>
         </label>
-        <label>
+        <label class="wide">
           Дата включения/исключения
           <input v-model="form.osgopDate" type="date" />
           <span v-if="errors.osgopDate" class="err">{{ errors.osgopDate }}</span>

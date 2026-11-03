@@ -199,15 +199,15 @@ function clearForm(): void {
           <span class="hint">№ договора: {{ contractNumber || '—' }}</span>
           <span v-if="fieldError('plate')" class="err">{{ fieldError('plate') }}</span>
         </label>
-        <label>
+        <label class="wide">
           Дата договора
           <input v-model="form.contractDate" type="date" />
         </label>
-        <label>
+        <label class="wide">
           Срок аренды с
           <input v-model="form.rentFrom" type="date" />
         </label>
-        <label>
+        <label class="wide">
           Срок аренды по
           <input v-model="form.rentTo" type="date" />
         </label>
@@ -225,7 +225,7 @@ function clearForm(): void {
           ФИО
           <input v-model="form.landlordFullName" type="text" />
         </label>
-        <label>
+        <label class="wide">
           Дата рождения
           <input v-model="form.landlordBirthDate" type="date" />
         </label>
