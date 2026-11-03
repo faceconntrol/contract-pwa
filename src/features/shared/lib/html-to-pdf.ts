@@ -8,14 +8,30 @@ export interface HtmlToPdfOptions {
   marginMm?: number
 }
 
-interface KeepBand {
+export interface KeepBand {
   top: number
   bottom: number
 }
 
+/** Селекторы блоков, которые нельзя резать посередине при нарезке canvas→PDF. */
+const KEEP_SELECTOR = [
+  '.pdf-keep-together',
+  'h1',
+  'h2',
+  '.section',
+  'p',
+  '.meta',
+  '.note',
+  'table.meta',
+  'table.vehicle tr',
+  'table.parties tr',
+  'thead',
+  'tbody tr',
+].join(', ')
+
 /**
  * Рендерит полный HTML-документ в PDF через iframe + html2canvas + jsPDF.
- * Блоки с классом `.pdf-keep-together` не режутся между страницами.
+ * Блоки из KEEP_SELECTOR / `.pdf-keep-together` по возможности не режутся между страницами.
  */
 export async function htmlDocumentToPdfBlob(
   htmlDocument: string,
@@ -72,18 +88,21 @@ export async function htmlDocumentToPdfBlob(
     let pageIndex = 0
 
     while (renderedHeight < canvas.height - 0.5) {
-      let sliceHeight = Math.min(pageCanvasHeight, canvas.height - renderedHeight)
-      sliceHeight = adjustSliceForKeepBands(
+      const remaining = canvas.height - renderedHeight
+      const idealSlice = Math.min(pageCanvasHeight, remaining)
+      const adjusted = adjustSliceForKeepBands(
         renderedHeight,
-        sliceHeight,
+        idealSlice,
         pageCanvasHeight,
         canvas.height,
         keepBands,
       )
+      // Целые пиксели — иначе на стыке страниц «съедается» полоска текста
+      const sliceHeight = Math.max(1, Math.round(adjusted))
 
       const pageCanvas = document.createElement('canvas')
       pageCanvas.width = canvas.width
-      pageCanvas.height = Math.max(1, Math.floor(sliceHeight))
+      pageCanvas.height = sliceHeight
 
       const ctx = pageCanvas.getContext('2d')
       if (!ctx) throw new Error('Canvas 2D недоступен')
@@ -111,7 +130,6 @@ export async function htmlDocumentToPdfBlob(
       renderedHeight += sliceHeight
       pageIndex += 1
 
-      // защита от бесконечного цикла при слишком высоком keep-блоке
       if (pageIndex > 40) {
         throw new Error('Слишком много страниц PDF')
       }
@@ -127,58 +145,108 @@ export async function htmlDocumentToPdfBlob(
   }
 }
 
-function collectKeepBands(root: HTMLElement, scale: number): KeepBand[] {
+export function collectKeepBands(root: HTMLElement, scale: number): KeepBand[] {
   const rootRect = root.getBoundingClientRect()
-  const nodes = root.querySelectorAll('.pdf-keep-together')
+  const nodes = root.querySelectorAll(KEEP_SELECTOR)
   const bands: KeepBand[] = []
 
   nodes.forEach((node) => {
     const el = node as HTMLElement
+    // Пропускаем пустые / нулевой высоты
+    if (el.offsetHeight < 2) return
     const rect = el.getBoundingClientRect()
     const top = (rect.top - rootRect.top + root.scrollTop) * scale
     const bottom = (rect.bottom - rootRect.top + root.scrollTop) * scale
-    if (bottom > top) bands.push({ top, bottom })
+    if (bottom > top + 1) bands.push({ top, bottom })
   })
 
-  return bands.sort((a, b) => a.top - b.top)
+  return mergeOverlappingBands(bands.sort((a, b) => a.top - b.top || a.bottom - b.bottom))
+}
+
+/** Склеивает почти совпадающие/вложенные полосы, чтобы разрез выбирался стабильнее. */
+function mergeOverlappingBands(bands: KeepBand[]): KeepBand[] {
+  if (bands.length === 0) return bands
+  const merged: KeepBand[] = [{ ...bands[0]! }]
+  for (let i = 1; i < bands.length; i += 1) {
+    const current = bands[i]!
+    const last = merged[merged.length - 1]!
+    // Полностью вложенная полоса — оставляем внешнюю (уже last, если она шире)
+    if (current.top >= last.top - 0.5 && current.bottom <= last.bottom + 0.5) {
+      continue
+    }
+    // last вложена в current — расширяем
+    if (last.top >= current.top - 0.5 && last.bottom <= current.bottom + 0.5) {
+      last.top = current.top
+      last.bottom = current.bottom
+      continue
+    }
+    merged.push({ ...current })
+  }
+  return merged
+}
+
+function cutSplitsBand(absoluteCut: number, band: KeepBand): boolean {
+  return band.top < absoluteCut - 0.5 && band.bottom > absoluteCut + 0.5
+}
+
+function isCleanCut(absoluteCut: number, bands: KeepBand[]): boolean {
+  return !bands.some((band) => cutSplitsBand(absoluteCut, band))
 }
 
 /**
- * Если разрез страницы проходит через keep-блок — режем до его начала,
- * чтобы весь блок (подпись + печать) ушёл на следующую страницу целиком.
+ * Подбирает нижнюю границу страницы так, чтобы разрез не проходил через keep-блок:
+ * 1) идеальный разрез, если чистый;
+ * 2) иначе — максимальный разрез у начала блока (блок уходит на след. страницу);
+ * 3) иначе — дотягиваем до конца блока, если он влезает;
+ * 4) иначе — вынужденный разрез (блок выше страницы).
  */
-function adjustSliceForKeepBands(
+export function adjustSliceForKeepBands(
   renderedHeight: number,
   sliceHeight: number,
   pageCanvasHeight: number,
   canvasHeight: number,
   bands: KeepBand[],
 ): number {
-  const idealEnd = renderedHeight + sliceHeight
-  const minSlice = Math.min(sliceHeight, pageCanvasHeight * 0.35)
+  const pageLimit = Math.min(pageCanvasHeight, canvasHeight - renderedHeight)
+  const idealAbs = renderedHeight + Math.min(sliceHeight, pageLimit)
+  const minAbs = renderedHeight + Math.max(24, pageLimit * 0.18)
+  const maxAbs = renderedHeight + pageLimit
 
+  if (isCleanCut(idealAbs, bands)) {
+    return idealAbs - renderedHeight
+  }
+
+  // Максимальная позиция ≤ ideal, где разрез чистый (обычно = top пересекаемого блока)
+  let bestPullBack: number | null = null
   for (const band of bands) {
-    const crosses =
-      band.top < idealEnd - 1 && band.bottom > renderedHeight + 1 && band.bottom > idealEnd
-    const splitsInside = band.top < idealEnd && band.bottom > idealEnd && band.top > renderedHeight
-
-    if (!crosses && !splitsInside) continue
-
-    // Блок начинается на этой странице, но не вмещается — переносим целиком
-    if (band.top > renderedHeight + minSlice && band.top < idealEnd) {
-      return Math.max(1, band.top - renderedHeight)
+    if (!cutSplitsBand(idealAbs, band)) continue
+    const candidate = band.top
+    if (candidate < minAbs || candidate > idealAbs) continue
+    if (!isCleanCut(candidate, bands)) continue
+    if (bestPullBack === null || candidate > bestPullBack) {
+      bestPullBack = candidate
     }
+  }
+  if (bestPullBack !== null) {
+    return Math.max(1, bestPullBack - renderedHeight)
+  }
 
-    // Блок выше страницы (не должен) — не режем внутри: обрезаем до конца блока, если влезает
-    if (band.top <= renderedHeight && band.bottom > idealEnd) {
-      const room = band.bottom - renderedHeight
-      if (room <= pageCanvasHeight) {
-        return Math.min(room, canvasHeight - renderedHeight)
+  // Дотянуть страницу до конца блока, который уже начался и целиком влезает
+  let bestExtend: number | null = null
+  for (const band of bands) {
+    if (!cutSplitsBand(idealAbs, band)) continue
+    if (band.bottom > maxAbs + 0.5) continue
+    if (band.top < minAbs && isCleanCut(band.bottom, bands)) {
+      if (bestExtend === null || band.bottom > bestExtend) {
+        bestExtend = band.bottom
       }
     }
   }
+  if (bestExtend !== null) {
+    return Math.max(1, Math.min(pageLimit, bestExtend - renderedHeight))
+  }
 
-  return sliceHeight
+  return Math.max(1, Math.min(pageLimit, idealAbs - renderedHeight))
 }
 
 async function mountIframe(htmlDocument: string, widthPx: number): Promise<HTMLIFrameElement> {

@@ -67,7 +67,13 @@ export function buildLeaseHtml(model: LeaseDocumentModel): string {
     padding-top: 20px;
   }
   table.parties p { margin: 0 0 6px; text-align: left; }
-  .pdf-keep-together {
+  .pdf-keep-together,
+  p,
+  .section,
+  h1,
+  table.meta,
+  table.vehicle tr,
+  table.parties tr {
     break-inside: avoid;
     page-break-inside: avoid;
   }

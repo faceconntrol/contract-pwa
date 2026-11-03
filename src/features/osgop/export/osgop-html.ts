@@ -68,6 +68,15 @@ export function buildOsgopHtml(model: OsgopDocumentModel): string {
   td.num { text-align: center; }
   td.empty { text-align: center; color: #666; font-style: italic; }
   .note { margin-top: 6px; font-size: 10pt; }
+  .pdf-keep-together,
+  .meta,
+  .note,
+  h1,
+  thead,
+  tbody tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 </style>
 </head>
 <body>
