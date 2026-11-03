@@ -21,14 +21,22 @@
   -webkit-font-smoothing: antialiased;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
+}
+
+html {
+  width: 100%;
+  overflow-x: clip;
 }
 
 body {
   margin: 0;
-  min-width: 320px;
+  width: 100%;
   min-height: 100vh;
+  overflow-x: clip;
 }
 
 a {
@@ -38,37 +46,45 @@ a {
 
 #app {
   min-height: 100vh;
+  width: 100%;
+  overflow-x: clip;
 }
 
 .app-shell {
+  width: 100%;
   max-width: 920px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 12px;
 }
 
 .topbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 
 .brand {
   font-weight: 700;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   letter-spacing: 0.01em;
+  min-width: 0;
 }
 
 .topbar nav {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
 }
 
 .topbar nav a {
-  padding: 8px 12px;
+  padding: 8px 10px;
   border-radius: 999px;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .topbar nav a.router-link-active {
@@ -78,12 +94,15 @@ a {
 
 .content {
   padding-bottom: 40px;
+  min-width: 0;
+  width: 100%;
 }
 
 .home h1,
 .page-head h1 {
   margin: 0 0 8px;
-  font-size: 1.8rem;
+  font-size: clamp(1.35rem, 5vw, 1.8rem);
+  overflow-wrap: anywhere;
 }
 
 .lead {
@@ -128,14 +147,18 @@ a {
 .form {
   display: grid;
   gap: 14px;
+  width: 100%;
+  min-width: 0;
 }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: 14px;
   box-shadow: var(--shadow);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .card.muted {
@@ -151,20 +174,31 @@ a {
 .grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+}
+
+.grid > * {
+  min-width: 0;
+}
+
+label.wide,
+.wide {
+  grid-column: 1 / -1;
 }
 
 @media (min-width: 720px) {
+  .app-shell {
+    padding: 16px;
+  }
+
   .grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .home-actions {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  label.wide {
-    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -172,17 +206,22 @@ label {
   display: grid;
   gap: 6px;
   font-size: 0.92rem;
+  min-width: 0;
 }
 
 input,
 select,
-button {
+button,
+textarea {
   font: inherit;
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -190,8 +229,20 @@ select {
   color: var(--ink);
 }
 
+/* iOS/Safari: date/number controls имеют большой intrinsic width */
+input[type='date'],
+input[type='datetime-local'],
+input[type='month'],
+input[type='time'],
+input[type='week'],
+input[type='number'],
+input[type='file'] {
+  max-width: 100%;
+}
+
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: 2px solid rgba(15, 110, 86, 0.35);
   border-color: var(--accent);
 }
@@ -199,11 +250,13 @@ select:focus {
 .hint {
   color: var(--muted);
   font-size: 0.85rem;
+  overflow-wrap: anywhere;
 }
 
 .err {
   color: var(--danger);
   font-size: 0.85rem;
+  overflow-wrap: anywhere;
 }
 
 .actions {
@@ -211,12 +264,23 @@ select:focus {
   flex-wrap: wrap;
   gap: 10px;
   position: sticky;
-  bottom: 12px;
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
   padding: 10px;
   background: rgba(238, 242, 245, 0.92);
   backdrop-filter: blur(8px);
   border-radius: var(--radius);
   border: 1px solid var(--line);
+  width: 100%;
+  min-width: 0;
+}
+
+.actions > button {
+  flex: 1 1 calc(50% - 10px);
+  min-width: 0;
+}
+
+.actions > button.ghost {
+  flex: 1 1 100%;
 }
 
 button {
@@ -224,6 +288,7 @@ button {
   border-radius: 10px;
   padding: 11px 14px;
   cursor: pointer;
+  max-width: 100%;
 }
 
 button:disabled {
@@ -244,12 +309,14 @@ button.ghost {
 
 .mode-switch {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 12px;
 }
 
 .mode-switch button {
-  flex: 1;
+  flex: 1 1 calc(50% - 8px);
+  min-width: 0;
   background: #eef3f7;
   color: var(--muted);
 }
@@ -261,15 +328,25 @@ button.ghost {
 
 .row-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
+}
+
+.row-head h2,
+.row-head h3 {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .banner {
   margin: 0;
   padding: 10px 12px;
   border-radius: 8px;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
 .banner.warn {

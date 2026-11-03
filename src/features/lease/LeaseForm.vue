@@ -372,13 +372,15 @@ function clearForm(): void {
 
 .stamp-preview {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin: 12px 0;
+  min-width: 0;
 }
 
 .stamp-preview img {
-  max-width: 160px;
+  width: min(160px, 100%);
   max-height: 160px;
   object-fit: contain;
   border: 1px solid var(--line);
@@ -391,5 +393,7 @@ function clearForm(): void {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  flex: 1 1 12rem;
 }
 </style>
