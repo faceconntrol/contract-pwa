@@ -1,10 +1,29 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
+import { copyFileSync, existsSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 
 // GitHub Pages: /contract-pwa/ ; локально и preview: /
 const base = process.env.VITE_BASE_PATH || '/'
+
+/** Копия index.html → 404.html для deep-link на GitHub Pages. */
+function spaGithubPages404(): Plugin {
+  return {
+    name: 'spa-github-pages-404',
+    closeBundle: {
+      order: 'post',
+      sequential: true,
+      handler() {
+        const outDir = fileURLToPath(new URL('./dist', import.meta.url))
+        const indexPath = `${outDir}/index.html`
+        const notFoundPath = `${outDir}/404.html`
+        if (!existsSync(indexPath)) return
+        copyFileSync(indexPath, notFoundPath)
+      },
+    },
+  }
+}
 
 export default defineConfig({
   base,
@@ -28,6 +47,8 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Регистрация SW прямо в index.html — не ждём загрузки Vue-бандла
+      injectRegister: 'inline',
       // В dev SW мешает отладке (кеширует старый JS с пустым PDF)
       devOptions: { enabled: false },
       includeAssets: ['favicon.svg', 'offline.html', 'icons/icon-192.png', 'icons/icon-512.png'],
@@ -41,6 +62,7 @@ export default defineConfig({
         lang: 'ru',
         start_url: './',
         scope: './',
+        id: './',
         icons: [
           {
             src: 'icons/icon-192.png',
@@ -51,14 +73,26 @@ export default defineConfig({
             src: 'icons/icon-512.png',
             sizes: '512x512',
             type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'icons/icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
           },
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Весь dist в precache — PDF/DOCX-чанки тоже доступны офлайн
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
         navigateFallback: 'index.html',
+        navigateFallbackAllowlist: [/./],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
       },
     }),
+    spaGithubPages404(),
   ],
 })
-

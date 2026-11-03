@@ -402,6 +402,11 @@ button.ghost {
   color: var(--warn-ink);
 }
 
+.banner.ok {
+  background: #e7f6ef;
+  color: #0f6e56;
+}
+
 .banner.error {
   background: var(--error-bg);
   color: var(--danger);
