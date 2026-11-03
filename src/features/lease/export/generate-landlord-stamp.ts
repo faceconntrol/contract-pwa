@@ -1,5 +1,4 @@
 import { asTrimmedString } from '@/features/shared/lib/string'
-import { toShortFullName } from '@/features/shared/lib/name'
 import type { LeaseFormState } from '../types'
 
 const STAMP_SIZE = 640
@@ -64,9 +63,6 @@ export interface LandlordStampInput {
   companyName: string
   companyInn: string
   companyOgrn: string
-  companyAddress: string
-  landlordFullName: string
-  landlordAddress: string
 }
 
 /** Круглая «живая» печать арендодателя (синяя, с текстурой чернил). */
@@ -121,9 +117,6 @@ export function stampInputFromLeaseForm(form: LeaseFormState): LandlordStampInpu
     companyName: asTrimmedString(form.companyName),
     companyInn: asTrimmedString(form.companyInn),
     companyOgrn: asTrimmedString(form.companyOgrn),
-    companyAddress: asTrimmedString(form.companyAddress),
-    landlordFullName: asTrimmedString(form.landlordFullName),
-    landlordAddress: asTrimmedString(form.landlordAddress),
   }
 }
 
@@ -133,24 +126,15 @@ function prepareStampText(input: LandlordStampInput): {
   ogrn: string
   inn: string
 } | null {
-  if (input.landlordType === 'ul') {
-    if (!input.companyName && !input.companyInn) return null
-    const parsed = parseCompanyName(input.companyName)
-    return {
-      arcText: parsed.formFull,
-      centerName: (parsed.tradeName || input.companyName || 'ОРГАНИЗАЦИЯ').toUpperCase(),
-      ogrn: input.companyOgrn ? `ОГРН ${input.companyOgrn}` : '',
-      inn: input.companyInn ? `ИНН ${input.companyInn}` : '',
-    }
-  }
-
-  const fullName = input.landlordFullName
-  if (!fullName) return null
+  // Печать только для юрлица — у физлица её нет.
+  if (input.landlordType !== 'ul') return null
+  if (!input.companyName && !input.companyInn) return null
+  const parsed = parseCompanyName(input.companyName)
   return {
-    arcText: 'ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ',
-    centerName: (toShortFullName(fullName) || fullName).toUpperCase(),
-    ogrn: '',
-    inn: 'М.П.',
+    arcText: parsed.formFull,
+    centerName: (parsed.tradeName || input.companyName || 'ОРГАНИЗАЦИЯ').toUpperCase(),
+    ogrn: input.companyOgrn ? `ОГРН ${input.companyOgrn}` : '',
+    inn: input.companyInn ? `ИНН ${input.companyInn}` : '',
   }
 }
 

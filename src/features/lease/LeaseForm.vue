@@ -61,6 +61,12 @@ function setLandlordType(type: LandlordType): void {
   form.landlordType = type
   innMessage.value = ''
   innError.value = ''
+  // Печать только для ЮЛ — при переключении на ФЛ сбрасываем файл и ошибку.
+  if (type !== 'ul') {
+    form.landlordStampDataUrl = ''
+    stampError.value = ''
+    stampInputKey.value += 1
+  }
 }
 
 function fieldError(key: string): string | undefined {
@@ -318,10 +324,10 @@ function clearForm(): void {
       <p>{{ TENANT.address }}</p>
     </section>
 
-    <section class="card">
+    <section v-if="form.landlordType === 'ul'" class="card">
       <h2>Печать арендодателя</h2>
       <p class="hint">
-        Печать собирается автоматически из реквизитов арендодателя и ставится у его подписи.
+        Печать собирается автоматически из реквизитов организации и ставится у подписи.
         При желании можно заменить своим файлом.
       </p>
       <div v-if="stampPreviewUrl" class="stamp-preview">
@@ -333,7 +339,7 @@ function clearForm(): void {
           </button>
         </div>
       </div>
-      <p v-else class="hint">Заполните данные арендодателя — появится превью печати.</p>
+      <p v-else class="hint">Заполните данные организации — появится превью печати.</p>
       <label class="wide">
         Заменить своей печатью (необязательно)
         <input

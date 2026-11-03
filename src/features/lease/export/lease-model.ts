@@ -132,8 +132,9 @@ export function toLeaseDocumentModel(form: LeaseFormState): LeaseDocumentModel {
   }
 }
 
-/** Своя загруженная печать имеет приоритет, иначе — автогенерация по реквизитам. */
+/** Печать только для ЮЛ: своя загруженная имеет приоритет, иначе автогенерация. Для ФЛ — пусто. */
 export function resolveLandlordStampDataUrl(form: LeaseFormState): string {
+  if (form.landlordType !== 'ul') return ''
   const custom = asTrimmedString(form.landlordStampDataUrl)
   if (custom) return custom
   return generateLandlordStampDataUrl(stampInputFromLeaseForm(form)) ?? ''
