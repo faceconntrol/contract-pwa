@@ -10,119 +10,110 @@ export interface CompanyLookupResult {
   directorPosition: string
 }
 
-interface EgrulSearchResponse {
-  t?: string
-  captchaRequired?: boolean
-}
+/**
+ * htmlweb.ru отдаёт CORS и доступен с телефона.
+ * Прямой egrul.nalog.ru из браузера блокируется CORS; Cloudflare-прокси до ФНС не достучаться (522).
+ */
+const HTMLWEB_ORG_URL = 'https://htmlweb.ru/json/service/org'
 
-interface EgrulRow {
-  c?: string
-  n?: string
-  g?: string
-  i?: string
-  o?: string
-  p?: string
-  rn?: string
-  k?: string
+interface HtmlwebOrgResponse {
+  status?: string | number
+  error?: string
+  inn?: string | number
+  name?: string
+  full_name?: string
+  ogrn?: string | number
+  kpp?: string | number
+  address?: string
+  seo_name?: string
+  seo_post?: string
+  limit?: number
 }
-
-interface EgrulResultResponse {
-  rows?: EgrulRow[]
-}
-
-const EGRUL_ORIGIN = import.meta.env.DEV ? '/api/egrul' : 'https://egrul.nalog.ru'
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-function parseDirector(raw: string): { position: string; name: string } {
-  const value = asTrimmedString(raw)
-  if (!value) return { position: 'генерального директора', name: '' }
-
-  const [titlePart, ...nameParts] = value.split(':')
-  const name = asTrimmedString(nameParts.join(':'))
-  const title = asTrimmedString(titlePart).toLowerCase()
-
-  let position = 'генерального директора'
+/** Приводит должность из номинатива API к формулировке «в лице …» (род. падеж). */
+function positionToGenitive(raw: string): string {
+  const title = asTrimmedString(raw).toLowerCase()
+  if (!title) return 'генерального директора'
   if (title.includes('генеральн') && title.includes('директор')) {
-    position = 'генерального директора'
-  } else if (title.includes('директор')) {
-    position = 'директора'
-  } else if (title.includes('президент')) {
-    position = 'президента'
-  } else if (title) {
-    position = title
+    return 'генерального директора'
   }
-
-  return { position, name }
+  if (title.includes('директор')) return 'директора'
+  if (title.includes('президент') && title.includes('председател')) {
+    return 'президента, председателя правления'
+  }
+  if (title.includes('президент')) return 'президента'
+  if (title.includes('председател')) return 'председателя'
+  return title
 }
 
-async function postSearch(inn: string): Promise<string> {
-  const body = new URLSearchParams({
-    query: inn,
-    vyp3CaptchaToken: '',
-    page: '',
-    nameEq: '',
-    region: '',
-    PreventChromeAutocomplete: '',
-  })
-
-  const response = await fetch(`${EGRUL_ORIGIN}/`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-      Accept: 'application/json, text/javascript, */*; q=0.01',
-    },
-    body,
-  })
-
-  if (!response.ok) {
-    throw new Error(`ЕГРЮЛ недоступен (${response.status})`)
+function mapHtmlwebOrg(data: HtmlwebOrgResponse, fallbackInn: string): CompanyLookupResult {
+  const companyName = asTrimmedString(data.full_name || data.name)
+  if (!companyName) {
+    throw new Error('Организация по ИНН не найдена')
   }
 
-  const data = (await response.json()) as EgrulSearchResponse
-  if (data.captchaRequired) {
-    throw new Error('ЕГРЮЛ запросил капчу — заполните данные вручную')
+  return {
+    companyName,
+    inn: asTrimmedString(String(data.inn ?? '')) || fallbackInn,
+    ogrn: asTrimmedString(String(data.ogrn ?? '')),
+    kpp: asTrimmedString(String(data.kpp ?? '')),
+    region: asTrimmedString(data.address),
+    directorName: asTrimmedString(data.seo_name),
+    directorPosition: positionToGenitive(data.seo_post ?? ''),
   }
-  if (!data.t) {
-    throw new Error('Не удалось начать поиск по ИНН')
-  }
-  return data.t
 }
 
-async function fetchSearchResult(token: string): Promise<EgrulRow> {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    if (attempt > 0) await sleep(700)
-    const response = await fetch(`${EGRUL_ORIGIN}/search-result/${token}`, {
-      headers: { Accept: 'application/json, text/javascript, */*; q=0.01' },
-    })
-    if (!response.ok) continue
-    const data = (await response.json()) as EgrulResultResponse
-    const row = data.rows?.[0]
-    if (row) return row
-  }
-  throw new Error('Организация по ИНН не найдена')
-}
-
-/** Поиск организации / ИП в ЕГРЮЛ ФНС по ИНН (нужен интернет; в dev — через Vite proxy). */
+/** Поиск организации / ИП по ИНН (нужен интернет). */
 export async function lookupCompanyByInn(innRaw: string): Promise<CompanyLookupResult> {
   const inn = asTrimmedString(innRaw).replace(/\D/g, '')
   if (inn.length !== 10 && inn.length !== 12) {
     throw new Error('ИНН должен содержать 10 или 12 цифр')
   }
 
-  const token = await postSearch(inn)
-  const row = await fetchSearchResult(token)
-  const director = parseDirector(row.g ?? '')
+  const url = `${HTMLWEB_ORG_URL}?inn=${encodeURIComponent(inn)}`
 
-  return {
-    companyName: asTrimmedString(row.c || row.n),
-    inn: asTrimmedString(row.i) || inn,
-    ogrn: asTrimmedString(row.o),
-    kpp: asTrimmedString(row.p),
-    region: asTrimmedString(row.rn),
-    directorName: director.name,
-    directorPosition: director.position,
+  let response: Response
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    })
+  } catch {
+    throw new Error(
+      'Нет доступа к сервису проверки ИНН. Проверьте интернет и попробуйте ещё раз, либо заполните реквизиты вручную.',
+    )
   }
+
+  if (!response.ok) {
+    throw new Error(`Сервис проверки ИНН недоступен (${response.status})`)
+  }
+
+  let data: HtmlwebOrgResponse
+  try {
+    data = (await response.json()) as HtmlwebOrgResponse
+  } catch {
+    throw new Error('Сервис проверки ИНН вернул некорректный ответ')
+  }
+
+  if (typeof data.status === 'number' && data.status >= 400) {
+    throw new Error(asTrimmedString(data.error) || 'Организация по ИНН не найдена')
+  }
+  if (asTrimmedString(data.error)) {
+    throw new Error(asTrimmedString(data.error))
+  }
+
+  // Иногда API отвечает с задержкой индексации — один повтор
+  if (!asTrimmedString(data.full_name || data.name)) {
+    await sleep(500)
+    const retry = await fetch(url, { headers: { Accept: 'application/json' } })
+    if (retry.ok) {
+      data = (await retry.json()) as HtmlwebOrgResponse
+    }
+  }
+
+  return mapHtmlwebOrg(data, inn)
 }
