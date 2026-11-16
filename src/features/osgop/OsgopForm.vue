@@ -162,7 +162,7 @@ async function clearForm(): Promise<void> {
 <template>
   <form class="form" @submit.prevent>
     <p v-if="draftWarning" class="banner warn">
-      Не удалось сохранить зашифрованный черновик на устройстве.
+      Автосохранение черновика недоступно (localStorage).
     </p>
     <p v-if="exportError" class="banner error">{{ exportError }}</p>
     <section class="card">
