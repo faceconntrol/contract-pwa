@@ -1,4 +1,5 @@
 import { asTrimmedString } from '@/features/shared/lib/string'
+import { secureGetJson, secureSetJson } from '@/features/shared/lib/secure-storage'
 import type { LandlordType, LeaseFormState } from '../types'
 
 const STORAGE_KEY = 'contract-pwa:landlord-history'
@@ -12,7 +13,6 @@ export interface LandlordHistoryEntry {
   landlordFullName: string
   landlordBirthDate: string
   landlordAddress: string
-  landlordGender: LeaseFormState['landlordGender']
   companyName: string
   companyInn: string
   companyOgrn: string
@@ -22,7 +22,6 @@ export interface LandlordHistoryEntry {
   directorName: string
   directorNameNominative: string
   directorBasis: string
-  landlordStampDataUrl: string
 }
 
 function entryLabel(entry: Omit<LandlordHistoryEntry, 'id' | 'label' | 'savedAt'>): string {
@@ -48,37 +47,51 @@ function isSameLandlord(a: LandlordHistoryEntry, b: LandlordHistoryEntry): boole
   )
 }
 
-export function loadLandlordHistory(): LandlordHistoryEntry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter(
+function normalizeEntries(parsed: unknown): LandlordHistoryEntry[] {
+  if (!Array.isArray(parsed)) return []
+  return parsed
+    .filter(
       (item): item is LandlordHistoryEntry =>
         Boolean(item && typeof item === 'object' && typeof (item as LandlordHistoryEntry).id === 'string'),
     )
-  } catch {
-    return []
-  }
+    .map((item) => ({
+      id: item.id,
+      label: item.label,
+      savedAt: item.savedAt,
+      landlordType: item.landlordType,
+      landlordFullName: item.landlordFullName ?? '',
+      landlordBirthDate: item.landlordBirthDate ?? '',
+      landlordAddress: item.landlordAddress ?? '',
+      companyName: item.companyName ?? '',
+      companyInn: item.companyInn ?? '',
+      companyOgrn: item.companyOgrn ?? '',
+      companyKpp: item.companyKpp ?? '',
+      companyAddress: item.companyAddress ?? '',
+      directorPosition: item.directorPosition ?? '',
+      directorName: item.directorName ?? '',
+      directorNameNominative: item.directorNameNominative ?? '',
+      directorBasis: item.directorBasis ?? '',
+    }))
 }
 
-function persist(entries: LandlordHistoryEntry[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)))
-  } catch {
-    // квота / private mode — историю просто не пишем
-  }
+export async function loadLandlordHistory(): Promise<LandlordHistoryEntry[]> {
+  const parsed = await secureGetJson<unknown>(STORAGE_KEY)
+  return normalizeEntries(parsed)
 }
 
-/** Сохраняет арендодателя из формы (после удачного экспорта или вручную). */
-export function rememberLandlordFromForm(form: LeaseFormState): LandlordHistoryEntry | null {
+async function persist(entries: LandlordHistoryEntry[]): Promise<void> {
+  await secureSetJson(STORAGE_KEY, entries.slice(0, MAX_ENTRIES))
+}
+
+/** Сохраняет арендодателя из формы (после удачного экспорта). Печать не храним — генерируется заново. */
+export async function rememberLandlordFromForm(
+  form: LeaseFormState,
+): Promise<LandlordHistoryEntry | null> {
   const snapshot: Omit<LandlordHistoryEntry, 'id' | 'label' | 'savedAt'> = {
     landlordType: form.landlordType,
     landlordFullName: asTrimmedString(form.landlordFullName),
     landlordBirthDate: asTrimmedString(form.landlordBirthDate),
     landlordAddress: asTrimmedString(form.landlordAddress),
-    landlordGender: form.landlordGender,
     companyName: asTrimmedString(form.companyName),
     companyInn: asTrimmedString(form.companyInn),
     companyOgrn: asTrimmedString(form.companyOgrn),
@@ -88,23 +101,21 @@ export function rememberLandlordFromForm(form: LeaseFormState): LandlordHistoryE
     directorName: asTrimmedString(form.directorName),
     directorNameNominative: asTrimmedString(form.directorNameNominative),
     directorBasis: asTrimmedString(form.directorBasis),
-    landlordStampDataUrl: asTrimmedString(form.landlordStampDataUrl),
   }
 
-  const label = entryLabel(snapshot)
   if (form.landlordType === 'fl' && !snapshot.landlordFullName) return null
   if (form.landlordType === 'ul' && !snapshot.companyName && !snapshot.companyInn) return null
 
   const entry: LandlordHistoryEntry = {
     id: crypto.randomUUID(),
-    label,
+    label: entryLabel(snapshot),
     savedAt: new Date().toISOString(),
     ...snapshot,
   }
 
-  const existing = loadLandlordHistory()
+  const existing = await loadLandlordHistory()
   const withoutDup = existing.filter((item) => !isSameLandlord(item, entry))
-  persist([entry, ...withoutDup])
+  await persist([entry, ...withoutDup])
   return entry
 }
 
@@ -116,7 +127,6 @@ export function applyLandlordHistoryToForm(
   form.landlordFullName = entry.landlordFullName
   form.landlordBirthDate = entry.landlordBirthDate
   form.landlordAddress = entry.landlordAddress
-  form.landlordGender = entry.landlordGender || 'auto'
   form.companyName = entry.companyName
   form.companyInn = entry.companyInn
   form.companyOgrn = entry.companyOgrn
@@ -126,5 +136,5 @@ export function applyLandlordHistoryToForm(
   form.directorName = entry.directorName
   form.directorNameNominative = entry.directorNameNominative
   form.directorBasis = entry.directorBasis || 'Устава'
-  form.landlordStampDataUrl = entry.landlordStampDataUrl
+  form.landlordStampDataUrl = ''
 }

@@ -1,10 +1,9 @@
 /**
- * Проверка согласования рода в преамбуле ФЛ.
+ * Автоопределение рода по отчеству.
  * Запуск: node src/features/lease/export/lease-gender.test.mjs
  */
 
-function resolvePersonGender(fullName, hint) {
-  if (hint === 'male' || hint === 'female') return hint
+function detectGenderFromFullName(fullName) {
   const parts = String(fullName || '')
     .trim()
     .split(/\s+/)
@@ -15,32 +14,23 @@ function resolvePersonGender(fullName, hint) {
   return 'male'
 }
 
-function buildFlPreamble(form) {
-  const name = form.landlordFullName
-  const gender = resolvePersonGender(name, form.landlordGender)
+function buildFlPreamble(name, address) {
+  const gender = detectGenderFromFullName(name)
   const citizen = gender === 'female' ? 'Гражданка РФ' : 'Гражданин РФ'
   const registered =
     gender === 'female' ? 'зарегистрированная по адресу' : 'зарегистрированный по адресу'
   const named = gender === 'female' ? 'именуемая' : 'именуемый'
-  return `${citizen} ${name}, ${registered} ${form.landlordAddress}, ${named} в дальнейшем «Арендодатель»`
+  return `${citizen} ${name}, ${registered} ${address}, ${named} в дальнейшем «Арендодатель»`
 }
 
-const female = buildFlPreamble({
-  landlordFullName: 'Иванова Анна Петровна',
-  landlordGender: 'auto',
-  landlordAddress: 'г. Москва',
-})
-if (!female.includes('Гражданка РФ') || !female.includes('зарегистрированная') || !female.includes('именуемая')) {
-  throw new Error(`female preamble failed: ${female}`)
+const female = buildFlPreamble('Иванова Анна Петровна', 'г. Москва')
+if (!female.includes('Гражданка РФ') || !female.includes('именуемая')) {
+  throw new Error(`female failed: ${female}`)
 }
 
-const maleForced = buildFlPreamble({
-  landlordFullName: 'Иванова Анна Петровна',
-  landlordGender: 'male',
-  landlordAddress: 'г. Москва',
-})
-if (!maleForced.includes('Гражданин РФ') || !maleForced.includes('именуемый')) {
-  throw new Error(`forced male failed: ${maleForced}`)
+const male = buildFlPreamble('Иванов Иван Петрович', 'г. Москва')
+if (!male.includes('Гражданин РФ') || !male.includes('именуемый')) {
+  throw new Error(`male failed: ${male}`)
 }
 
 console.log('lease-gender tests: ok')

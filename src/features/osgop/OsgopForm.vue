@@ -69,10 +69,10 @@ function normalizeLoadedDraft(raw: unknown): OsgopFormState {
   }
 }
 
-function loadForm(): void {
-  const draft = loadDraft<unknown>(DRAFT_KEY)
-  const legacyInclude = loadDraft<unknown>('contract-pwa:draft:osgop:include')
-  const legacyExclude = loadDraft<unknown>('contract-pwa:draft:osgop:exclude')
+async function loadForm(): Promise<void> {
+  const draft = await loadDraft<unknown>(DRAFT_KEY)
+  const legacyInclude = await loadDraft<unknown>('contract-pwa:draft:osgop:include')
+  const legacyExclude = await loadDraft<unknown>('contract-pwa:draft:osgop:exclude')
 
   let next = normalizeLoadedDraft(draft)
   if (!draft && (legacyInclude || legacyExclude)) {
@@ -99,7 +99,9 @@ function loadForm(): void {
   errors.value = {}
 }
 
-onMounted(() => loadForm())
+onMounted(() => {
+  void loadForm()
+})
 
 let saveTimer: number | undefined
 watch(
@@ -107,8 +109,9 @@ watch(
   () => {
     window.clearTimeout(saveTimer)
     saveTimer = window.setTimeout(() => {
-      const result = saveDraft(DRAFT_KEY, JSON.parse(JSON.stringify(form)))
-      if (!result.ok && result.warned) draftWarning.value = true
+      void saveDraft(DRAFT_KEY, JSON.parse(JSON.stringify(form))).then((result) => {
+        if (!result.ok && result.warned) draftWarning.value = true
+      })
     }, 400)
   },
   { deep: true },
@@ -147,19 +150,19 @@ async function exportDocument(format: 'pdf' | 'docx'): Promise<void> {
   }
 }
 
-function clearForm(): void {
+async function clearForm(): Promise<void> {
   if (!window.confirm('Очистить форму заявления и черновик?')) return
   Object.assign(form, createEmptyOsgopForm())
   form.osgopDate = todayIso()
   errors.value = {}
-  clearDraft(DRAFT_KEY)
+  await clearDraft(DRAFT_KEY)
 }
 </script>
 
 <template>
   <form class="form" @submit.prevent>
     <p v-if="draftWarning" class="banner warn">
-      Автосохранение черновика недоступно (localStorage).
+      Не удалось сохранить зашифрованный черновик на устройстве.
     </p>
     <p v-if="exportError" class="banner error">{{ exportError }}</p>
     <section class="card">

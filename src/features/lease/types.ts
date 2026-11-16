@@ -1,16 +1,11 @@
 export type LandlordType = 'fl' | 'ul'
 
-/** Пол арендодателя/руководителя: auto — по отчеству. */
-export type LandlordGender = 'auto' | 'male' | 'female'
-
 export interface LeaseFormState {
   landlordType: LandlordType
   plate: string
   contractDate: string
   /** ФЛ: ФИО */
   landlordFullName: string
-  /** ФЛ / ЮЛ: пол для согласования рода в тексте договора */
-  landlordGender: LandlordGender
   /** ФЛ: дата рождения */
   landlordBirthDate: string
   /** ФЛ: адрес регистрации */
@@ -57,7 +52,6 @@ export function createEmptyLeaseForm(): LeaseFormState {
     plate: '',
     contractDate: '',
     landlordFullName: '',
-    landlordGender: 'auto',
     landlordBirthDate: '',
     landlordAddress: '',
     companyName: '',

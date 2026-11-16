@@ -10,7 +10,7 @@ import {
   rememberLandlordFromForm,
   type LandlordHistoryEntry,
 } from './lib/landlord-history'
-import { detectGenderFromFullName, toGenitiveFullName } from '@/features/shared/lib/name'
+import { toGenitiveFullName } from '@/features/shared/lib/name'
 import { normalizePlate, plateForFilename } from '@/features/shared/lib/plate'
 import { fileToStampDataUrl } from '@/features/shared/lib/stamp-image'
 import { asTrimmedString } from '@/features/shared/lib/string'
@@ -51,22 +51,27 @@ function applyDateDefaults(): void {
   if (!form.contractDate) form.contractDate = todayIso()
   if (!form.rentFrom) form.rentFrom = form.contractDate
   if (!form.rentTo) form.rentTo = DEFAULT_RENT_TO_ISO
-  if (!form.landlordGender) form.landlordGender = 'auto'
   lastSyncedContractDate = form.contractDate
 }
 
-function refreshLandlordHistory(): void {
-  landlordHistory.value = loadLandlordHistory()
+async function refreshLandlordHistory(): Promise<void> {
+  landlordHistory.value = await loadLandlordHistory()
 }
 
 onMounted(() => {
-  const draft = loadDraft<Partial<LeaseFormState>>(DRAFT_KEY)
-  if (draft) Object.assign(form, createEmptyLeaseForm(), draft)
-  if (form.landlordType !== 'fl' && form.landlordType !== 'ul') {
-    form.landlordType = 'fl'
-  }
-  applyDateDefaults()
-  refreshLandlordHistory()
+  void (async () => {
+    const draft = await loadDraft<Partial<LeaseFormState>>(DRAFT_KEY)
+    if (draft) {
+      const safeDraft = { ...draft } as Partial<LeaseFormState> & Record<string, unknown>
+      delete safeDraft.landlordGender
+      Object.assign(form, createEmptyLeaseForm(), safeDraft)
+    }
+    if (form.landlordType !== 'fl' && form.landlordType !== 'ul') {
+      form.landlordType = 'fl'
+    }
+    applyDateDefaults()
+    await refreshLandlordHistory()
+  })()
 })
 
 let saveTimer: number | undefined
@@ -75,8 +80,9 @@ watch(
   () => {
     window.clearTimeout(saveTimer)
     saveTimer = window.setTimeout(() => {
-      const result = saveDraft(DRAFT_KEY, { ...form })
-      if (!result.ok && result.warned) draftWarning.value = true
+      void saveDraft(DRAFT_KEY, { ...form }).then((result) => {
+        if (!result.ok && result.warned) draftWarning.value = true
+      })
     }, 400)
   },
   { deep: true },
@@ -110,12 +116,6 @@ function fieldError(key: string): string | undefined {
   return errors.value[key]
 }
 
-function onLandlordNameBlur(): void {
-  if (form.landlordGender !== 'auto') return
-  // Триггерим реактивность превью рода через auto-детект в модели документа
-  void detectGenderFromFullName(form.landlordFullName)
-}
-
 function applyHistoryEntry(): void {
   const entry = landlordHistory.value.find((item) => item.id === selectedHistoryId.value)
   if (!entry) return
@@ -136,8 +136,7 @@ async function fillByInn(): Promise<void> {
     form.companyOgrn = company.ogrn
     form.companyKpp = company.kpp
     form.directorNameNominative = company.directorName
-    form.landlordGender = 'auto'
-    form.directorName = toGenitiveFullName(company.directorName, form.landlordGender)
+    form.directorName = toGenitiveFullName(company.directorName)
     form.directorPosition = company.directorPosition
     if (!asTrimmedString(form.companyAddress) && company.region) {
       form.companyAddress = company.region
@@ -146,7 +145,7 @@ async function fillByInn(): Promise<void> {
       form.directorBasis = 'Устава'
     }
     innMessage.value =
-      'Данные подставлены по ИНН. ФИО руководителя — в родительном падеже; проверьте адрес и род.'
+      'Данные подставлены по ИНН. ФИО и род согласованы автоматически — проверьте адрес.'
   } catch (error) {
     innError.value =
       error instanceof Error ? error.message : 'Не удалось получить данные по ИНН'
@@ -168,8 +167,8 @@ async function exportDocument(format: 'pdf' | 'docx'): Promise<void> {
         : await (await import('./export/lease-docx')).buildLeaseDocx(model)
     const filename = `Dogovor_${plateForFilename(form.plate)}_${formatFileDate(form.contractDate)}.${format === 'pdf' ? 'pdf' : 'docx'}`
     downloadBlob(blob, filename)
-    rememberLandlordFromForm(form)
-    refreshLandlordHistory()
+    await rememberLandlordFromForm(form)
+    await refreshLandlordHistory()
   } catch (error) {
     exportError.value =
       error instanceof Error ? error.message : 'Не удалось сформировать документ'
@@ -198,7 +197,7 @@ function clearStamp(): void {
   stampInputKey.value += 1
 }
 
-function clearForm(): void {
+async function clearForm(): Promise<void> {
   if (!window.confirm('Очистить форму договора и черновик?')) return
   const landlordType = form.landlordType
   Object.assign(form, createEmptyLeaseForm())
@@ -210,14 +209,14 @@ function clearForm(): void {
   innError.value = ''
   stampError.value = ''
   stampInputKey.value += 1
-  clearDraft(DRAFT_KEY)
+  await clearDraft(DRAFT_KEY)
 }
 </script>
 
 <template>
   <form class="form" @submit.prevent>
     <p v-if="draftWarning" class="banner warn">
-      Автосохранение черновика недоступно (localStorage). Данные сохранятся только до закрытия вкладки.
+      Не удалось сохранить зашифрованный черновик на устройстве. Данные могут пропасть после закрытия вкладки.
     </p>
     <p v-if="exportError" class="banner error">{{ exportError }}</p>
 
@@ -291,23 +290,9 @@ function clearForm(): void {
       <div class="grid">
         <label class="wide">
           ФИО
-          <input v-model="form.landlordFullName" type="text" @blur="onLandlordNameBlur" />
+          <input v-model="form.landlordFullName" type="text" />
+          <span class="hint">Род в договоре определяется автоматически по отчеству</span>
         </label>
-        <fieldset class="gender-fieldset wide">
-          <legend>Пол (для текста договора)</legend>
-          <label class="gender-option">
-            <input v-model="form.landlordGender" type="radio" value="auto" />
-            Авто
-          </label>
-          <label class="gender-option">
-            <input v-model="form.landlordGender" type="radio" value="male" />
-            Мужской
-          </label>
-          <label class="gender-option">
-            <input v-model="form.landlordGender" type="radio" value="female" />
-            Женский
-          </label>
-        </fieldset>
         <label class="wide">
           Дата рождения
           <input v-model="form.landlordBirthDate" type="date" />
@@ -357,22 +342,8 @@ function clearForm(): void {
         <label class="wide">
           ФИО руководителя (в договоре — родительный падеж)
           <input v-model="form.directorName" type="text" />
+          <span class="hint">Род («действующий / действующая») — по отчеству автоматически</span>
         </label>
-        <fieldset class="gender-fieldset wide">
-          <legend>Пол руководителя</legend>
-          <label class="gender-option">
-            <input v-model="form.landlordGender" type="radio" value="auto" />
-            Авто
-          </label>
-          <label class="gender-option">
-            <input v-model="form.landlordGender" type="radio" value="male" />
-            Мужской
-          </label>
-          <label class="gender-option">
-            <input v-model="form.landlordGender" type="radio" value="female" />
-            Женский
-          </label>
-        </fieldset>
         <label>
           На основании
           <input v-model="form.directorBasis" type="text" placeholder="Устава" />
@@ -476,35 +447,6 @@ function clearForm(): void {
 
 .history-pick {
   margin-top: 12px;
-}
-
-.gender-fieldset {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 16px;
-  align-items: center;
-}
-
-.gender-fieldset legend {
-  padding: 0 4px;
-  font-size: 0.92rem;
-}
-
-.gender-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.92rem;
-}
-
-.gender-option input {
-  width: auto;
-  min-width: 0;
-  margin: 0;
 }
 
 .stamp-preview {
