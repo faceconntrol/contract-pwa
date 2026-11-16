@@ -2,13 +2,20 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { clearDraft, loadDraft, saveDraft } from '@/features/shared/lib/draft'
 import { downloadBlob } from '@/features/shared/lib/download'
-import { formatFileDate, todayIso } from '@/features/shared/lib/dates'
+import { DEFAULT_RENT_TO_ISO, formatFileDate, todayIso } from '@/features/shared/lib/dates'
 import { lookupCompanyByInn } from '@/features/shared/lib/egrul'
+import {
+  applyLandlordHistoryToForm,
+  loadLandlordHistory,
+  rememberLandlordFromForm,
+  type LandlordHistoryEntry,
+} from './lib/landlord-history'
+import { detectGenderFromFullName, toGenitiveFullName } from '@/features/shared/lib/name'
 import { normalizePlate, plateForFilename } from '@/features/shared/lib/plate'
-import { toGenitiveFullName } from '@/features/shared/lib/name'
 import { fileToStampDataUrl } from '@/features/shared/lib/stamp-image'
 import { asTrimmedString } from '@/features/shared/lib/string'
 import { TENANT } from '@/features/shared/constants/tenant'
+import VehicleMakeModelInput from '@/features/shared/ui/VehicleMakeModelInput.vue'
 import { resolveLandlordStampDataUrl, toLeaseDocumentModel } from './export/lease-model'
 import {
   createEmptyLeaseForm,
@@ -30,18 +37,36 @@ const innMessage = ref('')
 const innError = ref('')
 const stampError = ref('')
 const stampInputKey = ref(0)
+const landlordHistory = ref<LandlordHistoryEntry[]>([])
+const selectedHistoryId = ref('')
+
+/** Предыдущая дата договора — чтобы синхронизировать «срок с», пока пользователь не задал свою. */
+let lastSyncedContractDate = ''
 
 const contractNumber = computed(() => normalizePlate(form.plate))
 const stampPreviewUrl = computed(() => resolveLandlordStampDataUrl(form))
 const hasCustomStamp = computed(() => Boolean(asTrimmedString(form.landlordStampDataUrl)))
 
+function applyDateDefaults(): void {
+  if (!form.contractDate) form.contractDate = todayIso()
+  if (!form.rentFrom) form.rentFrom = form.contractDate
+  if (!form.rentTo) form.rentTo = DEFAULT_RENT_TO_ISO
+  if (!form.landlordGender) form.landlordGender = 'auto'
+  lastSyncedContractDate = form.contractDate
+}
+
+function refreshLandlordHistory(): void {
+  landlordHistory.value = loadLandlordHistory()
+}
+
 onMounted(() => {
   const draft = loadDraft<Partial<LeaseFormState>>(DRAFT_KEY)
   if (draft) Object.assign(form, createEmptyLeaseForm(), draft)
-  if (!form.contractDate) form.contractDate = todayIso()
   if (form.landlordType !== 'fl' && form.landlordType !== 'ul') {
     form.landlordType = 'fl'
   }
+  applyDateDefaults()
+  refreshLandlordHistory()
 })
 
 let saveTimer: number | undefined
@@ -57,11 +82,23 @@ watch(
   { deep: true },
 )
 
+watch(
+  () => form.contractDate,
+  (next, prev) => {
+    if (!next) return
+    // «Срок с» = дата договора, пока не задали отдельно
+    if (!form.rentFrom || form.rentFrom === prev || form.rentFrom === lastSyncedContractDate) {
+      form.rentFrom = next
+    }
+    lastSyncedContractDate = next
+  },
+)
+
 function setLandlordType(type: LandlordType): void {
   form.landlordType = type
   innMessage.value = ''
   innError.value = ''
-  // Печать только для ЮЛ — при переключении на ФЛ сбрасываем файл и ошибку.
+  selectedHistoryId.value = ''
   if (type !== 'ul') {
     form.landlordStampDataUrl = ''
     stampError.value = ''
@@ -71,6 +108,21 @@ function setLandlordType(type: LandlordType): void {
 
 function fieldError(key: string): string | undefined {
   return errors.value[key]
+}
+
+function onLandlordNameBlur(): void {
+  if (form.landlordGender !== 'auto') return
+  // Триггерим реактивность превью рода через auto-детект в модели документа
+  void detectGenderFromFullName(form.landlordFullName)
+}
+
+function applyHistoryEntry(): void {
+  const entry = landlordHistory.value.find((item) => item.id === selectedHistoryId.value)
+  if (!entry) return
+  applyLandlordHistoryToForm(form, entry)
+  stampInputKey.value += 1
+  innMessage.value = 'Подставлены сохранённые данные арендодателя'
+  innError.value = ''
 }
 
 async function fillByInn(): Promise<void> {
@@ -84,7 +136,8 @@ async function fillByInn(): Promise<void> {
     form.companyOgrn = company.ogrn
     form.companyKpp = company.kpp
     form.directorNameNominative = company.directorName
-    form.directorName = toGenitiveFullName(company.directorName)
+    form.landlordGender = 'auto'
+    form.directorName = toGenitiveFullName(company.directorName, form.landlordGender)
     form.directorPosition = company.directorPosition
     if (!asTrimmedString(form.companyAddress) && company.region) {
       form.companyAddress = company.region
@@ -93,7 +146,7 @@ async function fillByInn(): Promise<void> {
       form.directorBasis = 'Устава'
     }
     innMessage.value =
-      'Данные подставлены из ЕГРЮЛ. ФИО руководителя приведено к родительному падежу — проверьте адрес и формулировку.'
+      'Данные подставлены по ИНН. ФИО руководителя — в родительном падеже; проверьте адрес и род.'
   } catch (error) {
     innError.value =
       error instanceof Error ? error.message : 'Не удалось получить данные по ИНН'
@@ -115,6 +168,8 @@ async function exportDocument(format: 'pdf' | 'docx'): Promise<void> {
         : await (await import('./export/lease-docx')).buildLeaseDocx(model)
     const filename = `Dogovor_${plateForFilename(form.plate)}_${formatFileDate(form.contractDate)}.${format === 'pdf' ? 'pdf' : 'docx'}`
     downloadBlob(blob, filename)
+    rememberLandlordFromForm(form)
+    refreshLandlordHistory()
   } catch (error) {
     exportError.value =
       error instanceof Error ? error.message : 'Не удалось сформировать документ'
@@ -148,7 +203,8 @@ function clearForm(): void {
   const landlordType = form.landlordType
   Object.assign(form, createEmptyLeaseForm())
   form.landlordType = landlordType
-  form.contractDate = todayIso()
+  applyDateDefaults()
+  selectedHistoryId.value = ''
   errors.value = {}
   innMessage.value = ''
   innError.value = ''
@@ -183,6 +239,16 @@ function clearForm(): void {
           Юрлицо (ЮЛ)
         </button>
       </div>
+      <label v-if="landlordHistory.length > 0" class="wide history-pick">
+        Ранее использованные
+        <select v-model="selectedHistoryId" @change="applyHistoryEntry">
+          <option value="">— выбрать арендодателя —</option>
+          <option v-for="entry in landlordHistory" :key="entry.id" :value="entry.id">
+            {{ entry.label }}
+          </option>
+        </select>
+        <span class="hint">Подставит ФИО/реквизиты из прошлого договора</span>
+      </label>
     </section>
 
     <section class="card">
@@ -206,10 +272,12 @@ function clearForm(): void {
         <label class="wide">
           Срок аренды с
           <input v-model="form.rentFrom" type="date" />
+          <span class="hint">По умолчанию совпадает с датой договора</span>
         </label>
         <label class="wide">
           Срок аренды по
           <input v-model="form.rentTo" type="date" />
+          <span class="hint">По умолчанию 01.11.2030</span>
         </label>
         <label>
           Цена, руб/сутки (п. 3.1.1)
@@ -223,8 +291,23 @@ function clearForm(): void {
       <div class="grid">
         <label class="wide">
           ФИО
-          <input v-model="form.landlordFullName" type="text" />
+          <input v-model="form.landlordFullName" type="text" @blur="onLandlordNameBlur" />
         </label>
+        <fieldset class="gender-fieldset wide">
+          <legend>Пол (для текста договора)</legend>
+          <label class="gender-option">
+            <input v-model="form.landlordGender" type="radio" value="auto" />
+            Авто
+          </label>
+          <label class="gender-option">
+            <input v-model="form.landlordGender" type="radio" value="male" />
+            Мужской
+          </label>
+          <label class="gender-option">
+            <input v-model="form.landlordGender" type="radio" value="female" />
+            Женский
+          </label>
+        </fieldset>
         <label class="wide">
           Дата рождения
           <input v-model="form.landlordBirthDate" type="date" />
@@ -245,9 +328,9 @@ function clearForm(): void {
         </label>
         <div class="inn-actions">
           <button type="button" class="primary" :disabled="innBusy" @click="fillByInn">
-            {{ innBusy ? 'Ищу в ЕГРЮЛ…' : 'Заполнить по ИНН' }}
+            {{ innBusy ? 'Ищу…' : 'Заполнить по ИНН' }}
           </button>
-          <span class="hint">Нужен интернет. Адрес из выписки уточните вручную.</span>
+          <span class="hint">Нужен интернет. Адрес уточните вручную.</span>
         </div>
         <p v-if="innMessage" class="banner warn wide">{{ innMessage }}</p>
         <p v-if="innError" class="banner error wide">{{ innError }}</p>
@@ -274,8 +357,22 @@ function clearForm(): void {
         <label class="wide">
           ФИО руководителя (в договоре — родительный падеж)
           <input v-model="form.directorName" type="text" />
-          <span class="hint">Подставляется автоматически из ЕГРЮЛ в родительном падеже.</span>
         </label>
+        <fieldset class="gender-fieldset wide">
+          <legend>Пол руководителя</legend>
+          <label class="gender-option">
+            <input v-model="form.landlordGender" type="radio" value="auto" />
+            Авто
+          </label>
+          <label class="gender-option">
+            <input v-model="form.landlordGender" type="radio" value="male" />
+            Мужской
+          </label>
+          <label class="gender-option">
+            <input v-model="form.landlordGender" type="radio" value="female" />
+            Женский
+          </label>
+        </fieldset>
         <label>
           На основании
           <input v-model="form.directorBasis" type="text" placeholder="Устава" />
@@ -288,7 +385,8 @@ function clearForm(): void {
       <div class="grid">
         <label class="wide">
           Марка и модель
-          <input v-model="form.vehicleMakeModel" type="text" />
+          <VehicleMakeModelInput v-model="form.vehicleMakeModel" />
+          <span class="hint">Можно выбрать из списка или ввести свою</span>
         </label>
         <label>
           VIN
@@ -374,6 +472,39 @@ function clearForm(): void {
 
 .wide {
   grid-column: 1 / -1;
+}
+
+.history-pick {
+  margin-top: 12px;
+}
+
+.gender-fieldset {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: center;
+}
+
+.gender-fieldset legend {
+  padding: 0 4px;
+  font-size: 0.92rem;
+}
+
+.gender-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.92rem;
+}
+
+.gender-option input {
+  width: auto;
+  min-width: 0;
+  margin: 0;
 }
 
 .stamp-preview {

@@ -1,6 +1,8 @@
 import petrovich from 'petrovich'
 import { asTrimmedString } from './string'
 
+export type PersonGender = 'male' | 'female'
+
 /** «Шульга Иван Викторович» → «Шульга И.В.» */
 export function toShortFullName(fullName: unknown): string {
   const parts = asTrimmedString(fullName).split(/\s+/).filter(Boolean)
@@ -14,17 +16,41 @@ export function toShortFullName(fullName: unknown): string {
   return `${surname} ${initials}`
 }
 
+/** Определяет пол по отчеству (…ич / …на); без отчества — male. */
+export function detectGenderFromFullName(fullName: unknown): PersonGender {
+  const parts = asTrimmedString(fullName).split(/\s+/).filter(Boolean)
+  const middle = parts[2]
+  if (!middle) return 'male'
+  try {
+    const detected = petrovich.detect_gender(middle)
+    return detected === 'female' ? 'female' : 'male'
+  } catch {
+    const lower = middle.toLowerCase()
+    if (lower.endsWith('вна') || lower.endsWith('чна') || lower.endsWith('кызы')) return 'female'
+    return 'male'
+  }
+}
+
 /**
  * ФИО в именительном → родительный падеж (для «в лице …»).
  * «Хучбаров Исмаил Уматгериевич» → «Хучбарова Исмаила Уматгериевича»
  */
-export function toGenitiveFullName(fullName: unknown): string {
+export function toGenitiveFullName(
+  fullName: unknown,
+  genderHint?: PersonGender | 'auto',
+): string {
   const parts = asTrimmedString(fullName).split(/\s+/).filter(Boolean)
   if (parts.length === 0) return ''
 
   const [last = '', first = '', middle = ''] = parts
-  const person: { last: string; first?: string; middle?: string; gender?: 'male' | 'female' } = {
+  const gender =
+    genderHint === 'male' || genderHint === 'female'
+      ? genderHint
+      : detectGenderFromFullName(fullName)
+
+  const person: { last: string; first?: string; middle?: string; gender: PersonGender } = {
     last,
+    gender,
   }
   if (first) person.first = first
   if (middle) person.middle = middle

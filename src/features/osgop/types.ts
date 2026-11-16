@@ -1,5 +1,6 @@
 import { TENANT } from '@/features/shared/constants/tenant'
 import { TRANSPORT_TYPES } from '@/features/shared/constants/transport-types'
+import { todayIso } from '@/features/shared/lib/dates'
 
 export type OsgopVehicleGroup = 'include' | 'exclude'
 
@@ -41,7 +42,7 @@ export function createEmptyOsgopForm(): OsgopFormState {
   return {
     osgopContractNumber: TENANT.defaultOsgopContractNumber,
     clientName: TENANT.defaultClientName,
-    osgopDate: '',
+    osgopDate: todayIso(),
     includeVehicles: [createVehicleRow()],
     excludeVehicles: [],
   }

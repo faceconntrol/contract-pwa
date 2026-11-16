@@ -1,10 +1,15 @@
 import { TENANT } from '@/features/shared/constants/tenant'
 import { formatRuDate, formatRuLongDate } from '@/features/shared/lib/dates'
 import { formatRubAmount } from '@/features/shared/lib/money'
-import { toGenitiveFullName, toShortFullName } from '@/features/shared/lib/name'
+import {
+  detectGenderFromFullName,
+  toGenitiveFullName,
+  toShortFullName,
+  type PersonGender,
+} from '@/features/shared/lib/name'
 import { normalizePlate } from '@/features/shared/lib/plate'
 import { asTrimmedString } from '@/features/shared/lib/string'
-import type { LandlordType, LeaseFormState } from '../types'
+import type { LandlordGender, LandlordType, LeaseFormState } from '../types'
 import {
   generateLandlordStampDataUrl,
   stampInputFromLeaseForm,
@@ -42,18 +47,31 @@ export interface LeaseDocumentModel {
   tenant: typeof TENANT
 }
 
+function resolvePersonGender(
+  fullName: string,
+  hint: LandlordGender | undefined,
+): PersonGender {
+  if (hint === 'male' || hint === 'female') return hint
+  return detectGenderFromFullName(fullName)
+}
+
 function buildFlPreamble(form: LeaseFormState): string {
   const name = asTrimmedString(form.landlordFullName)
   const birth = formatRuDate(asTrimmedString(form.landlordBirthDate))
   const address = asTrimmedString(form.landlordAddress)
+  const gender = resolvePersonGender(name, form.landlordGender)
+  const citizen = gender === 'female' ? 'Гражданка РФ' : 'Гражданин РФ'
+  const registered =
+    gender === 'female' ? 'зарегистрированная по адресу' : 'зарегистрированный по адресу'
+  const named = gender === 'female' ? 'именуемая' : 'именуемый'
   const birthPart = birth ? `, ${birth} года рождения` : ''
-  const addressPart = address ? `, зарегистрированный по адресу ${address}` : ''
-  return `Гражданин РФ ${name}${birthPart}${addressPart}, именуемый в дальнейшем «Арендодатель»`
+  const addressPart = address ? `, ${registered} ${address}` : ''
+  return `${citizen} ${name}${birthPart}${addressPart}, ${named} в дальнейшем «Арендодатель»`
 }
 
 function resolveDirectorGenitive(form: LeaseFormState): string {
   const nominative = asTrimmedString(form.directorNameNominative)
-  if (nominative) return toGenitiveFullName(nominative)
+  if (nominative) return toGenitiveFullName(nominative, form.landlordGender)
   return asTrimmedString(form.directorName)
 }
 
@@ -65,15 +83,23 @@ function buildUlPreamble(form: LeaseFormState): string {
   const basis = asTrimmedString(form.directorBasis) || 'Устава'
   const innPart = inn ? `, ИНН ${inn}` : ''
   const directorPart = director ? `, в лице ${position} ${director}` : ''
-  return `${company}${innPart}${directorPart}, действующий на основании ${basis}, именуемый в дальнейшем «Арендодатель»`
+  const directorName =
+    asTrimmedString(form.directorNameNominative) || asTrimmedString(form.directorName)
+  const gender = resolvePersonGender(directorName, form.landlordGender)
+  const acting = gender === 'female' ? 'действующая' : 'действующий'
+  return `${company}${innPart}${directorPart}, ${acting} на основании ${basis}, именуемый в дальнейшем «Арендодатель»`
 }
 
 function buildFlRequisites(form: LeaseFormState): string[] {
-  const lines = [asTrimmedString(form.landlordFullName)]
+  const name = asTrimmedString(form.landlordFullName)
+  const lines = [name]
   const birth = formatRuDate(asTrimmedString(form.landlordBirthDate))
   if (birth) lines.push(`${birth} года рождения,`)
   const address = asTrimmedString(form.landlordAddress)
-  if (address) lines.push(`зарегистрированный по адресу ${address}`)
+  const gender = resolvePersonGender(name, form.landlordGender)
+  const registered =
+    gender === 'female' ? 'зарегистрированная по адресу' : 'зарегистрированный по адресу'
+  if (address) lines.push(`${registered} ${address}`)
   return lines.filter(Boolean)
 }
 

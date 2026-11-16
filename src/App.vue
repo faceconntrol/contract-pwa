@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
+import VehicleMakeModelDatalist from '@/features/shared/ui/VehicleMakeModelDatalist.vue'
 
 const online = ref(typeof navigator !== 'undefined' ? navigator.onLine : true)
 const offlineReady = ref(false)
@@ -82,6 +83,7 @@ onUnmounted(() => {
     <main class="content">
       <RouterView />
     </main>
+    <VehicleMakeModelDatalist />
   </div>
 </template>
 

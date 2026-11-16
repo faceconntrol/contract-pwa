@@ -56,3 +56,6 @@ export function todayIso(): string {
   const d = String(now.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
 }
+
+/** Дата окончания аренды по умолчанию (можно менять вручную в форме). */
+export const DEFAULT_RENT_TO_ISO = '2030-11-01'

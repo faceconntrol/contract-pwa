@@ -8,6 +8,7 @@ import { clearDraft, loadDraft, saveDraft } from '@/features/shared/lib/draft'
 import { downloadBlob } from '@/features/shared/lib/download'
 import { formatFileDate, todayIso } from '@/features/shared/lib/dates'
 import { normalizePlate } from '@/features/shared/lib/plate'
+import VehicleMakeModelInput from '@/features/shared/ui/VehicleMakeModelInput.vue'
 import { toOsgopDocumentModel } from './export/osgop-model'
 import {
   createEmptyOsgopForm,
@@ -90,7 +91,8 @@ function loadForm(): void {
   }
 
   Object.assign(form, next)
-  if (!form.osgopDate) form.osgopDate = todayIso()
+  // Заявление обычно на «сегодня» — всегда подставляем актуальную дату при открытии
+  form.osgopDate = todayIso()
   if (!form.osgopContractNumber.trim()) {
     form.osgopContractNumber = createEmptyOsgopForm().osgopContractNumber
   }
@@ -213,7 +215,8 @@ function clearForm(): void {
           </label>
           <label class="wide">
             Марка и модель
-            <input v-model="row.makeModel" type="text" />
+            <VehicleMakeModelInput v-model="row.makeModel" />
+            <span class="hint">Можно выбрать из списка или ввести свою</span>
             <span v-if="errors[`include.${index}.makeModel`]" class="err">
               {{ errors[`include.${index}.makeModel`] }}
             </span>
@@ -282,7 +285,8 @@ function clearForm(): void {
           </label>
           <label class="wide">
             Марка и модель
-            <input v-model="row.makeModel" type="text" />
+            <VehicleMakeModelInput v-model="row.makeModel" />
+            <span class="hint">Можно выбрать из списка или ввести свою</span>
             <span v-if="errors[`exclude.${index}.makeModel`]" class="err">
               {{ errors[`exclude.${index}.makeModel`] }}
             </span>
